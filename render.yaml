@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: evolve-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run db:migrate && npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_POOL_MAX
+        value: 5
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ISSUER
+        value: evolve-api
+      - key: JWT_AUDIENCE
+        value: evolve-app
+      - key: ACCESS_TOKEN_TTL_SECONDS
+        value: 900
+      - key: REFRESH_TOKEN_TTL_DAYS
+        value: 30
+      - key: CORS_ORIGIN
+        value: "*"

@@ -1,0 +1,807 @@
+openapi: 3.1.0
+info:
+  title: Evolve API
+  version: 1.0.0
+  description: |
+    Backend de Evolve: catálogo de ejercicios, autenticación, perfil, planes,
+    entrenamientos y progreso.
+
+    Autenticación: `Authorization: Bearer <accessToken>`. El access token dura
+    15 minutos; usá `POST /api/v1/auth/refresh` para renovarlo.
+  license:
+    name: "MIT (código). Medios: © Gym visual — https://gymvisual.com/"
+servers:
+  - url: http://localhost:3000
+    description: Local
+  - url: https://evolve-api.onrender.com
+    description: Producción (ajustar al dominio real)
+tags:
+  - name: Sistema
+  - name: Auth
+  - name: Perfil
+  - name: Ejercicios
+  - name: Planes
+  - name: Entrenamientos
+  - name: Progreso
+
+paths:
+  /healthz:
+    get:
+      tags: [Sistema]
+      summary: Health check
+      responses:
+        '200':
+          description: Servicio vivo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  uptimeSeconds: { type: integer }
+
+  /api/v1/meta:
+    get:
+      tags: [Ejercicios]
+      summary: Metadatos del catálogo
+      description: Totales y valores disponibles para filtros e idiomas.
+      responses:
+        '200':
+          description: Metadatos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      bodyParts: { type: array, items: { type: string } }
+                      equipment: { type: array, items: { type: string } }
+                      targets: { type: array, items: { type: string } }
+                      muscleGroups: { type: array, items: { type: string } }
+                      languages: { type: array, items: { type: string } }
+                      attribution: { type: string }
+
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Registrar usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 128 }
+                name: { type: string, minLength: 1, maxLength: 100 }
+                timezone: { type: string, examples: [America/Argentina/Buenos_Aires] }
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Tokens emitidos
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Renovar tokens (rotación)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: Nuevos tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revocar refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '204': { description: Revocado }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/profile:
+    get:
+      tags: [Perfil]
+      summary: Obtener perfil
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Perfil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Perfil]
+      summary: Actualizar perfil
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, maxLength: 100 }
+                weightKg: { type: number, exclusiveMinimum: 0, maximum: 500 }
+                heightCm: { type: integer, minimum: 50, maximum: 300 }
+                goal: { type: string, maxLength: 100 }
+                level: { type: string, maxLength: 50 }
+                timezone: { type: string }
+      responses:
+        '200':
+          description: Perfil actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/exercises:
+    get:
+      tags: [Ejercicios]
+      summary: Listar ejercicios
+      parameters:
+        - { in: query, name: search, schema: { type: string } }
+        - { in: query, name: bodyPart, schema: { type: string } }
+        - { in: query, name: equipment, schema: { type: string } }
+        - { in: query, name: target, schema: { type: string } }
+        - { in: query, name: muscleGroup, schema: { type: string } }
+        - { in: query, name: lang, schema: { type: string, default: es } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 24 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200':
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ExerciseSummary' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/exercises/{id}:
+    get:
+      tags: [Ejercicios]
+      summary: Detalle de ejercicio
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, pattern: '^\d{4}$' } }
+        - { in: query, name: lang, schema: { type: string, default: es } }
+      responses:
+        '200':
+          description: Detalle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ExerciseDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/plans:
+    get:
+      tags: [Planes]
+      summary: Listar planes del usuario
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Planes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/PlanSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Planes]
+      summary: Crear plan
+      description: El primer plan del usuario queda activo automáticamente.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanInput' }
+      responses:
+        '201':
+          description: Plan creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/PlanDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/plans/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Planes]
+      summary: Detalle de plan
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/PlanDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Planes]
+      summary: Reemplazar plan
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanInput' }
+      responses:
+        '200':
+          description: Plan actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/PlanDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Planes]
+      summary: Eliminar plan
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Eliminado }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/plans/{id}/activate:
+    post:
+      tags: [Planes]
+      summary: Activar plan
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Plan activo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/PlanDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workouts/today:
+    get:
+      tags: [Entrenamientos]
+      summary: Entrenamiento del día
+      description: Día del plan activo según la zona horaria del usuario.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Día de hoy o null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    oneOf:
+                      - { type: 'null' }
+                      - $ref: '#/components/schemas/TodayWorkout'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/workouts:
+    get:
+      tags: [Entrenamientos]
+      summary: Historial
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { in: query, name: offset, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200':
+          description: Historial paginado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WorkoutSummary' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Entrenamientos]
+      summary: Iniciar entrenamiento
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                planDayId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Entrenamiento iniciado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/WorkoutSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Ya hay un entrenamiento abierto hoy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code: { type: string, const: WORKOUT_IN_PROGRESS }
+                      message: { type: string }
+                      details:
+                        type: object
+                        properties:
+                          workoutId: { type: string, format: uuid }
+
+  /api/v1/workouts/{id}:
+    get:
+      tags: [Entrenamientos]
+      summary: Detalle con series
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Entrenamiento
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/WorkoutDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workouts/{id}/sets:
+    post:
+      tags: [Entrenamientos]
+      summary: Registrar o corregir una serie
+      description: Upsert por (workout, exerciseId, setNumber).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [exerciseId, setNumber, reps]
+              properties:
+                exerciseId: { type: string }
+                setNumber: { type: integer, minimum: 1, maximum: 100 }
+                weightKg: { type: number, minimum: 0, maximum: 2000, default: 0 }
+                reps: { type: integer, minimum: 1, maximum: 1000 }
+      responses:
+        '200':
+          description: Serie guardada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/WorkoutSet' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Entrenamiento ya finalizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/workouts/{id}/finish:
+    post:
+      tags: [Entrenamientos]
+      summary: Finalizar entrenamiento
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Entrenamiento finalizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/WorkoutSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/progress/summary:
+    get:
+      tags: [Progreso]
+      summary: Resumen de progreso
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Resumen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      streakDays: { type: integer }
+                      workoutsThisWeek: { type: integer }
+                      weeklyVolumeKg: { type: number }
+                      newPrs: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/progress/volume:
+    get:
+      tags: [Progreso]
+      summary: Volumen de la semana actual
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Siete días (lunes a domingo)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: { type: string, format: date }
+                        label: { type: string }
+                        kg: { type: number }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/progress/records:
+    get:
+      tags: [Progreso]
+      summary: Récords personales por ejercicio
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Récords
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        exerciseId: { type: string }
+                        exerciseName: { type: string }
+                        weightKg: { type: number }
+                        reps: { type: integer }
+                        date: { type: string, format: date }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Datos inválidos
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: No autenticado o token inválido
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Conflicto
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Demasiadas peticiones
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+
+    Tokens:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        tokenType: { type: string, const: Bearer }
+        expiresIn: { type: integer, description: Segundos de vida del access token }
+
+    AuthResponse:
+      allOf:
+        - $ref: '#/components/schemas/Tokens'
+        - type: object
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        weightKg: { type: [number, 'null'] }
+        heightCm: { type: [integer, 'null'] }
+        goal: { type: [string, 'null'] }
+        level: { type: [string, 'null'] }
+        timezone: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Pagination:
+      type: object
+      properties:
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        hasMore: { type: boolean }
+
+    ExerciseSummary:
+      type: object
+      properties:
+        id: { type: string, examples: ['0001'] }
+        name: { type: string }
+        bodyPart: { type: string }
+        equipment: { type: string }
+        target: { type: string }
+        muscleGroup: { type: string }
+        secondaryMuscles: { type: array, items: { type: string } }
+        imageUrl: { type: string, format: uri }
+        gifUrl: { type: string, format: uri }
+        attribution: { type: string }
+
+    ExerciseDetail:
+      allOf:
+        - $ref: '#/components/schemas/ExerciseSummary'
+        - type: object
+          properties:
+            language: { type: string }
+            instructions: { type: string }
+            steps: { type: array, items: { type: string } }
+
+    PlanExerciseInput:
+      type: object
+      required: [exerciseId, sets, reps]
+      properties:
+        exerciseId: { type: string }
+        sets: { type: integer, minimum: 1, maximum: 50 }
+        reps: { type: string, examples: ['8-12'] }
+        restSeconds: { type: integer, minimum: 0, maximum: 3600 }
+
+    PlanDayInput:
+      type: object
+      required: [weekday, name, exercises]
+      properties:
+        weekday: { type: integer, minimum: 1, maximum: 7, description: ISO, lunes=1 }
+        name: { type: string, maxLength: 80 }
+        exercises:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: '#/components/schemas/PlanExerciseInput' }
+
+    PlanInput:
+      type: object
+      required: [name, days]
+      properties:
+        name: { type: string, maxLength: 100 }
+        goal: { type: string, maxLength: 100, default: Hipertrofia }
+        days:
+          type: array
+          minItems: 1
+          maxItems: 7
+          items: { $ref: '#/components/schemas/PlanDayInput' }
+
+    PlanSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        goal: { type: string }
+        isActive: { type: boolean }
+        exerciseCount: { type: integer }
+        days: { type: array, items: { type: integer } }
+
+    PlanExercise:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        exercise: { $ref: '#/components/schemas/ExerciseSummary' }
+        sets: { type: integer }
+        reps: { type: string }
+        restSeconds: { type: [integer, 'null'] }
+        position: { type: integer }
+
+    PlanDay:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        weekday: { type: integer }
+        name: { type: string }
+        exercises:
+          type: array
+          items: { $ref: '#/components/schemas/PlanExercise' }
+
+    PlanDetail:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        goal: { type: string }
+        isActive: { type: boolean }
+        days:
+          type: array
+          items: { $ref: '#/components/schemas/PlanDay' }
+
+    TodayWorkout:
+      type: object
+      properties:
+        planId: { type: string, format: uuid }
+        planName: { type: string }
+        dayId: { type: string, format: uuid }
+        dayName: { type: string }
+        workoutId: { type: [string, 'null'], format: uuid }
+        exercises:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/PlanExercise'
+              - type: object
+                properties:
+                  lastWeightKg: { type: [number, 'null'] }
+
+    WorkoutSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        notes: { type: [string, 'null'] }
+        planDayId: { type: [string, 'null'], format: uuid }
+        setCount: { type: integer }
+        volumeKg: { type: number }
+
+    WorkoutSet:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        exercise: { $ref: '#/components/schemas/ExerciseSummary' }
+        setNumber: { type: integer }
+        weightKg: { type: number }
+        reps: { type: integer }
+        completedAt: { type: string, format: date-time }
+
+    WorkoutDetail:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        notes: { type: [string, 'null'] }
+        planDayId: { type: [string, 'null'], format: uuid }
+        sets:
+          type: array
+          items: { $ref: '#/components/schemas/WorkoutSet' }
