@@ -34,6 +34,9 @@ heap). No requiere base de datos para funcionar: solo las rutas de usuario la us
 | `REFRESH_TOKEN_TTL_DAYS` | `30` | |
 | `CORS_ORIGIN` | `*` | Lista separada por comas si se restringe |
 | `MEDIA_BASE_URL` | vacío | Solo si los medios se mueven a un CDN |
+| `RESEND_API_KEY` | vacío | Sin key, el enlace de recuperación se escribe en el log |
+| `MAIL_FROM` | `Evolve <onboarding@resend.dev>` | En producción, remitente de un dominio verificado en Resend |
+| `PASSWORD_RESET_URL` | `evolve://reset-password` | Base del enlace de recuperación (deep link o web) |
 
 ## API
 
@@ -51,6 +54,10 @@ Las rutas protegidas esperan `Authorization: Bearer <accessToken>`.
 | POST | `/api/v1/auth/login` | Iniciar sesión |
 | POST | `/api/v1/auth/refresh` | Rotar refresh token |
 | POST | `/api/v1/auth/logout` | Revocar refresh token |
+| POST | `/api/v1/auth/forgot-password` | Enviar enlace de recuperación (202 siempre) |
+| POST | `/api/v1/auth/reset-password` | Cambiar contraseña con token; revoca sesiones |
+| GET | `/api/v1/auth/sessions` | Sesiones activas |
+| DELETE | `/api/v1/auth/sessions/:id` | Cerrar una sesión |
 | GET / PATCH | `/api/v1/profile` | Perfil y preferencias |
 | GET / POST | `/api/v1/plans` | Listar / crear planes |
 | GET / PUT / DELETE | `/api/v1/plans/:id` | Detalle / reemplazar / borrar |
@@ -71,7 +78,13 @@ El contrato completo está en [`openapi.yaml`](openapi.yaml).
 1. `register` / `login` devuelven `accessToken` (JWT, 15 min) y `refreshToken`.
 2. El refresh token se guarda **hasheado** en `refresh_tokens`; cada `refresh`
    revoca el anterior y emite uno nuevo.
-3. `logout` revoca el refresh token enviado.
+3. Si se presenta un refresh token ya revocado, se asume robo y se revocan
+   todas las sesiones del usuario (`401 REFRESH_TOKEN_REUSED`). El cliente debe
+   serializar los refresh para no dispararlo con peticiones concurrentes.
+4. `logout` revoca el refresh token enviado.
+5. `forgot-password` emite un token de 30 min, hasheado y de un solo uso, y manda
+   el enlace. `reset-password` cambia la contraseña y revoca todas las sesiones.
+   `GET /auth/sessions` lista las activas y `DELETE /auth/sessions/:id` cierra una.
 
 ### Usuarios y datos
 
@@ -110,6 +123,9 @@ npm run test:db   # integración; requiere TEST_DATABASE_URL
 3. En Render: **New → Blueprint**, elegir el repo con `render.yaml`.
 4. Cargar `DATABASE_URL` cuando Render la pida. `JWT_SECRET` se genera solo.
 5. El arranque ejecuta `npm run db:migrate` y luego `npm start`.
+6. Para recuperación de contraseña: crear cuenta en [Resend](https://resend.com),
+   verificar un dominio y cargar `RESEND_API_KEY` y `MAIL_FROM` en Render. Sin
+   `RESEND_API_KEY` el enlace solo aparece en los logs del servicio.
 
 Notas del plan free:
 

@@ -214,6 +214,13 @@ if (!databaseUrl) {
       body: { refreshToken },
     });
     assert.equal(reuse.status, 401);
+    assert.equal(reuse.body.error.code, 'REFRESH_TOKEN_REUSED');
+
+    const familyRevoked = await api('/api/v1/auth/refresh', {
+      method: 'POST',
+      body: { refreshToken: refreshed.body.refreshToken },
+    });
+    assert.equal(familyRevoked.status, 401);
 
     const logout = await api('/api/v1/auth/logout', {
       method: 'POST',
@@ -229,6 +236,77 @@ if (!databaseUrl) {
 
     const unauthorized = await api('/api/v1/plans');
     assert.equal(unauthorized.status, 401);
+
+    const sessionLogin = await api('/api/v1/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    });
+    assert.equal(sessionLogin.status, 200);
+
+    const sessions = await api('/api/v1/auth/sessions', {
+      token: sessionLogin.body.accessToken,
+    });
+    assert.equal(sessions.status, 200);
+    assert.equal(sessions.body.data.length, 1);
+    const sessionId: string = sessions.body.data[0].id;
+
+    const removedSession = await api(`/api/v1/auth/sessions/${sessionId}`, {
+      method: 'DELETE',
+      token: sessionLogin.body.accessToken,
+    });
+    assert.equal(removedSession.status, 204);
+
+    const revokedSession = await api('/api/v1/auth/refresh', {
+      method: 'POST',
+      body: { refreshToken: sessionLogin.body.refreshToken },
+    });
+    assert.equal(revokedSession.status, 401);
+
+    const missingSession = await api(`/api/v1/auth/sessions/${sessionId}`, {
+      method: 'DELETE',
+      token: sessionLogin.body.accessToken,
+    });
+    assert.equal(missingSession.status, 404);
+
+    const forgot = await api('/api/v1/auth/forgot-password', {
+      method: 'POST',
+      body: { email },
+    });
+    assert.equal(forgot.status, 202);
+    assert.ok(forgot.body.debugResetToken);
+
+    const unknownEmail = await api('/api/v1/auth/forgot-password', {
+      method: 'POST',
+      body: { email: `nadie-${Date.now()}@evolve.test` },
+    });
+    assert.equal(unknownEmail.status, 202);
+    assert.equal(unknownEmail.body.debugResetToken, undefined);
+
+    const newPassword = 'otra-contraseña-123';
+    const reset = await api('/api/v1/auth/reset-password', {
+      method: 'POST',
+      body: { token: forgot.body.debugResetToken, password: newPassword },
+    });
+    assert.equal(reset.status, 204);
+
+    const oldPasswordLogin = await api('/api/v1/auth/login', {
+      method: 'POST',
+      body: { email, password },
+    });
+    assert.equal(oldPasswordLogin.status, 401);
+
+    const newPasswordLogin = await api('/api/v1/auth/login', {
+      method: 'POST',
+      body: { email, password: newPassword },
+    });
+    assert.equal(newPasswordLogin.status, 200);
+
+    const resetReuse = await api('/api/v1/auth/reset-password', {
+      method: 'POST',
+      body: { token: forgot.body.debugResetToken, password: 'tercera-contraseña-123' },
+    });
+    assert.equal(resetReuse.status, 400);
+    assert.equal(resetReuse.body.error.code, 'INVALID_RESET_TOKEN');
 
     await query('DELETE FROM users WHERE email = $1', [email]);
   });

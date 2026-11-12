@@ -132,7 +132,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Tokens' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '401':
+          description: Token inválido/expirado, o reusado (cierra todas las sesiones)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /api/v1/auth/logout:
@@ -151,6 +155,95 @@ paths:
       responses:
         '204': { description: Revocado }
         '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Pedir enlace de recuperación de contraseña
+      description: Responde 202 siempre, exista o no el email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: Solicitud aceptada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      sent: { type: boolean }
+                  debugResetToken:
+                    type: string
+                    description: Solo fuera de producción, para pruebas locales
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Cambiar contraseña con un token de recuperación
+      description: Revoca todas las sesiones del usuario.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '204': { description: Contraseña actualizada }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/auth/sessions:
+    get:
+      tags: [Auth]
+      summary: Listar sesiones activas
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Refresh tokens vigentes del usuario
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        createdAt: { type: string, format: date-time }
+                        expiresAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/auth/sessions/{id}:
+    delete:
+      tags: [Auth]
+      summary: Cerrar una sesión
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Sesión revocada }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/profile:
     get:

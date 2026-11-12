@@ -34,6 +34,15 @@ export const refreshSchema = z.object({
 
 export const logoutSchema = refreshSchema;
 
+export const forgotPasswordSchema = z.object({
+  email: emailSchema,
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20).max(200),
+  password: z.string().min(8).max(128),
+});
+
 export const profileUpdateSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
