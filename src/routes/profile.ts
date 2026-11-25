@@ -59,4 +59,15 @@ router.patch('/', authRequired, async (req, res) => {
   res.json({ data: publicUser(user) });
 });
 
+router.delete('/', authRequired, async (req, res) => {
+  const userId = currentUserId(req);
+  // Las tablas dependientes tienen ON DELETE CASCADE hacia users.
+  const result = await query('DELETE FROM users WHERE id = $1', [userId]);
+  if (result.rowCount === 0) {
+    throw new HttpError(404, 'USER_NOT_FOUND', 'Usuario no encontrado');
+  }
+  res.set('Cache-Control', 'private, no-store');
+  res.status(204).end();
+});
+
 export const profileRouter = router;

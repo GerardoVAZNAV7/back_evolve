@@ -58,7 +58,7 @@ Las rutas protegidas esperan `Authorization: Bearer <accessToken>`.
 | POST | `/api/v1/auth/reset-password` | Cambiar contraseña con token; revoca sesiones |
 | GET | `/api/v1/auth/sessions` | Sesiones activas |
 | DELETE | `/api/v1/auth/sessions/:id` | Cerrar una sesión |
-| GET / PATCH | `/api/v1/profile` | Perfil y preferencias |
+| GET / PATCH / DELETE | `/api/v1/profile` | Perfil y preferencias; `DELETE` borra la cuenta y todos sus datos (204) |
 | GET / POST | `/api/v1/plans` | Listar / crear planes |
 | GET / PUT / DELETE | `/api/v1/plans/:id` | Detalle / reemplazar / borrar |
 | POST | `/api/v1/plans/:id/activate` | Activar plan |

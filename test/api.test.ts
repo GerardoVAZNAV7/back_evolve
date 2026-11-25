@@ -310,4 +310,39 @@ if (!databaseUrl) {
 
     await query('DELETE FROM users WHERE email = $1', [email]);
   });
+  test('DELETE /profile borra la cuenta y sus datos', async () => {
+    const email = `del-${Date.now()}@evolve.test`;
+    const register = await api('/api/v1/auth/register', {
+      method: 'POST',
+      body: { email, password: 'contraseña-de-prueba', name: 'Del', timezone: 'UTC' },
+    });
+    assert.equal(register.status, 201);
+    const { accessToken, refreshToken } = register.body;
+    const userId: string = register.body.user.id;
+
+    const catalog = await api('/api/v1/exercises?limit=1');
+    const plan = await api('/api/v1/plans', {
+      method: 'POST',
+      token: accessToken,
+      body: {
+        name: 'Plan',
+        days: [{ weekday: 1, name: 'Dia', exercises: [{ exerciseId: catalog.body.data[0].id, sets: 3, reps: '10' }] }],
+      },
+    });
+    assert.equal(plan.status, 201);
+
+    assert.equal((await api('/api/v1/profile', { method: 'DELETE' })).status, 401);
+
+    const del = await api('/api/v1/profile', { method: 'DELETE', token: accessToken });
+    assert.equal(del.status, 204);
+
+    assert.equal((await api('/api/v1/profile', { token: accessToken })).status, 404);
+    const refreshed = await api('/api/v1/auth/refresh', { method: 'POST', body: { refreshToken } });
+    assert.equal(refreshed.status, 401);
+
+    for (const table of ['plans', 'workouts', 'refresh_tokens']) {
+      const rows = await query(`SELECT 1 FROM ${table} WHERE user_id = $1`, [userId]);
+      assert.equal(rows.rows.length, 0, table);
+    }
+  });
 }

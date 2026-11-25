@@ -289,6 +289,17 @@ paths:
                   data: { $ref: '#/components/schemas/User' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [Perfil]
+      summary: Eliminar la cuenta y todos sus datos
+      description: >
+        Borra de forma permanente el usuario y, en cascada, sus planes,
+        entrenamientos, series, sesiones y tokens. Requerido por Google Play.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Cuenta eliminada }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/exercises:
     get:
